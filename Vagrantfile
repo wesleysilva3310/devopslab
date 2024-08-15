@@ -13,6 +13,25 @@ Vagrant.configure("2") do |config|
     dns.vm.provision "shell", path: "setup.sh"
   end
 
+
+  # Jenkins Server
+  config.ssh.insert_key = false
+
+  config.vm.define "jenkins" do |jenkins|
+
+    jenkins.vm.box              = "ubuntu/focal64"
+    jenkins.vm.hostname         = "jenkins"
+
+    jenkins.vm.network "public_network", ip: "192.168.1.132"
+
+    jenkins.vm.provision "shell", path: "setup.sh"
+
+    jenkins.vm.network "forwarded_port", guest: 8080, host: 8081
+    jenkins.vm.network "forwarded_port", guest: 50000, host: 50000
+    jenkins.vm.network "forwarded_port", guest: 443, host: 444
+  end
+
+
   # Kubernetes Master Server
   config.vm.define "k8smaster" do |node|
   

@@ -64,6 +64,7 @@ sudo cat >>/etc/hosts<<EOF
 192.168.1.105   dnsserver
 192.168.1.101   k8sworker1
 192.168.1.102   k8sworker2
+192.168.1.132   jenkins
 EOF
 fi
 
@@ -259,4 +260,39 @@ EOF
 cd gitlab && docker-compose up -d
 # Initial password: docker exec -it gitlab_gitlab_1 cat /etc/gitlab/initial_root_password
 echo "Installation complete!"
+fi
+
+# Install Jenkins
+if
+        [ "$HOSTNAME" = jenkins ];
+then
+
+mkdir jenkins && cd jenkins
+cat > docker-compose.yml << EOF
+version: "3.9"
+services:
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins-server
+    privileged: true
+    hostname: jenkinsserver
+    user: root
+    labels:
+      com.example.description: "Jenkins-Server by DigitalAvenue.dev"
+    ports: 
+      - "8080:8080"
+      - "50000:50000"
+    networks:
+      jenkins-net:
+        aliases: 
+          - jenkins-net
+    volumes: 
+     - jenkins-data:/var/jenkins_home
+     - /var/run/docker.sock:/var/run/docker.sock
+     
+volumes: 
+  jenkins-data:
+networks:
+  jenkins-net:
+EOF
 fi
