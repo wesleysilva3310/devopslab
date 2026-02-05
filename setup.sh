@@ -1,4 +1,38 @@
 #!/bin/bash
+set -e
+
+############################
+# SSH PASSWORD FIX (UBUNTU CLOUD IMAGES)
+############################
+echo "Waiting for cloud-init to finish..."
+while [ ! -f /var/lib/cloud/instance/boot-finished ]; do
+  sleep 2
+done
+
+echo "Configuring SSH password authentication"
+
+# Ensure vagrant user has a password
+echo "vagrant:vagrant" | sudo chpasswd
+
+SSH_CLOUDIMG="/etc/ssh/sshd_config.d/60-cloudimg-settings.conf"
+SSH_OVERRIDE="/etc/ssh/sshd_config.d/99-vagrant-password.conf"
+
+# If Ubuntu cloud image policy exists, patch it
+if [ -f "$SSH_CLOUDIMG" ]; then
+  sudo sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' "$SSH_CLOUDIMG"
+else
+  # Fallback override (for non-cloud images)
+  sudo tee "$SSH_OVERRIDE" >/dev/null <<EOF
+PasswordAuthentication yes
+ChallengeResponseAuthentication no
+UsePAM yes
+EOF
+fi
+
+sudo systemctl reload sshd
+
+echo "Effective SSH setting:"
+sudo sshd -T | grep passwordauthentication
 
 # Updating linux
 echo "Updating Linux"
@@ -31,24 +65,6 @@ sudo curl \
     -o /etc/bash_completion.d/docker-compose
 echo "INSTALLATION COMPLETE!"
 fi
-
-# ssh access without need key pairs. initial login: vagrant vagrant
-echo "Configuring ssh access"
-sudo su -
-sleep 5
-file=/etc/ssh/sshd_config
-cp -p $file $file.old &&
-while read key other
-do
- case $key in
- PasswordAuthentication) other=yes;;
- PubkeyAuthentication) other=yes;;
- esac
- echo "$key $other"
-done < $file.old > $file
-systemctl restart sshd
-echo "CONFIGURATION COMPLETE!"
-
 
 # Configuring dns server
 if [ "$HOSTNAME" = dnsserver ];
@@ -171,10 +187,19 @@ echo "[k8s k8smaster TASK 1] Pull required containers"
 kubeadm config images pull >/dev/null 2>&1
 
 echo "[k8s k8smaster TASK 2] Initialize Kubernetes Cluster"
-kubeadm init --apiserver-advertise-address=192.168.1.100 --pod-network-cidr=192.168.0.0/16 >> /root/kubeinit.log 2>/dev/null
+kubeadm init \
+  --apiserver-advertise-address=192.168.1.100 \
+  --pod-network-cidr=192.168.0.0/16 \
+  >> /root/kubeinit.log 2>&1 || true
+
 
 echo "[k8s k8smaster TASK 3] Deploy Calico network"
-kubectl --kubeconfig=/etc/kubernetes/admin.conf create -f https://docs.projectcalico.org/v3.18/manifests/calico.yaml >/dev/null 2>&1
+echo "Waiting for API server..."
+until kubectl --kubeconfig=/etc/kubernetes/admin.conf get nodes >/dev/null 2>&1; do
+  sleep 5
+done
+
+kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://docs.projectcalico.org/v3.18/manifests/calico.yaml || true
 
 echo "[k8s k8smaster TASK 4] Generate and save cluster join command to /joincluster.sh"
 kubeadm token create --print-join-command > /joincluster.sh 2>/dev/null
