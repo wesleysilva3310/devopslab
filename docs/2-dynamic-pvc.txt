@@ -1,0 +1,59 @@
+###Add the Helm repo
+
+sudo snap install helm --classic
+
+Add repo:
+
+helm repo add nfs-subdir-external-provisioner \
+  https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+
+helm repo update
+
+###Install the provisioner(replace with your values)
+
+helm install nfs-client nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+  --set nfs.server=192.168.1.100 \
+  --set nfs.path=/srv/nfs/k8s \
+  --set storageClass.name=nfs-client \
+  --set storageClass.defaultClass=true
+
+This does several things automatically:
+
+deploys the provisioner controller pod
+creates StorageClass nfs-client
+marks it default
+automatically creates PVs for any PVC
+
+###Verify installation
+
+kubectl get pods
+kubectl get storageclass
+
+You should see:
+
+nfs-client (default)
+
+
+###Test dynamic provisioning
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-dynamic-test
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
+
+Apply:
+
+kubectl apply -f pvc.yaml
+
+Then:
+
+kubectl get pvc
+kubectl get pv
+
+PVC should immediately be: Bound
