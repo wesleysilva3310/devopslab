@@ -1,0 +1,170 @@
+To make k8smaster a nfs server to use pv/pvc across the cluster:
+
+
+###Install NFS server
+
+on k8smaster:
+
+sudo apt update
+sudo apt install nfs-kernel-server -y
+
+
+###Create export directory
+
+sudo mkdir -p /srv/nfs/k8s
+sudo chown nobody:nogroup /srv/nfs/k8s
+sudo chmod 777 /srv/nfs/k8s
+
+###Configure exports
+
+sudo vim /etc/exports
+
+Add this exact line:
+
+/srv/nfs/k8s 192.168.1.0/24(rw,sync,no_subtree_check,no_root_squash)
+
+Apply configuration:
+
+sudo exportfs -rav
+sudo systemctl restart nfs-kernel-server
+
+Verify:
+
+sudo exportfs -v
+
+
+###Install NFS client on ALL nodes
+
+sudo apt install nfs-common -y
+
+
+###Test NFS manually (important sanity check)
+
+On k8sworker1:
+
+sudo mkdir -p /mnt/nfs-test
+sudo mount 192.168.1.100:/srv/nfs/k8s /mnt/nfs-test
+touch /mnt/nfs-test/from-worker1.txt
+ls /mnt/nfs-test
+
+On k8smaster:
+
+ls /srv/nfs/k8s
+
+You should see:
+
+from-worker1.txt
+
+Unmount:
+
+sudo umount /mnt/nfs-test
+
+
+###Create Kubernetes NFS PersistentVolume
+
+Create nfs-pv.yaml:
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-pv
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  nfs:
+    server: 192.168.1.100
+    path: /srv/nfs/k8s
+
+
+Apply:
+
+kubectl apply -f nfs-pv.yaml
+
+Check:
+
+kubectl get pv
+
+
+Create PersistentVolumeClaim
+
+Create nfs-pvc.yaml:
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-pvc
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: nfs-pv
+
+
+Apply:
+
+kubectl apply -f nfs-pvc.yaml
+
+Check:
+
+kubectl get pvc
+
+Status should be: Bound
+
+
+###Test Pod YAML (NFS RWX validation)
+
+Create a file called nfs-test-pod.yaml:
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nfs-test
+spec:
+  containers:
+    - name: busybox
+      image: busybox
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          echo "hello from $(hostname)" > /data/hello.txt
+          sleep 3600
+      volumeMounts:
+        - name: nfs-volume
+          mountPath: /data
+  volumes:
+    - name: nfs-volume
+      persistentVolumeClaim:
+        claimName: nfs-pvc
+
+Apply it:
+
+kubectl apply -f nfs-test-pod.yaml
+
+
+Run:
+
+kubectl exec -it nfs-test -- sh
+cat /data/hello.txt
+
+
+You should see:
+
+hello from nfs-test
+
+
+###Prove cross-node persistence (this is the key part)
+
+Delete the pod, cordon the node which the previous pod was created before, apply the pod yaml again.
+
+kubectl exec -it nfs-test -- cat /data/hello.txt
+
+
+
+Extra proof
+
+k8smaster: ls /srv/nfs/k8s
