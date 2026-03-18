@@ -1,0 +1,38 @@
+###Create namespace
+
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+###Clean old Argo CD CRDs
+
+kubectl delete crd applicationsets.argoproj.io --ignore-not-found
+kubectl delete crd applications.argoproj.io --ignore-not-found
+kubectl delete crd appprojects.argoproj.io --ignore-not-found
+
+
+###Install Argo CD (official manifest)
+
+kubectl apply -n argocd \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+kubectl -n argocd get pods
+
+
+###Access the UI (local cluster)
+
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+
+on browser: https://localhost:8080
+
+
+###Get initial admin password
+
+kubectl -n argocd get secret argocd-initial-admin-secret \
+  -o go-template='{{.data.password | base64decode}}'
+echo
+
+
+username: admin
+password: <output>
+
+
+###Reset admin password
