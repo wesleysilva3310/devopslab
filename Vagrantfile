@@ -41,7 +41,7 @@ Vagrant.configure("2") do |config|
 
       # Bootstrap provisioning with role awareness
       machine.vm.provision "shell",
-        path: "scripts/setup.sh",
+        path: "scripts/bootstrap.sh",
         args: [node[:role], node[:ip]],
         privileged: true
     end
