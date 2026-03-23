@@ -48,33 +48,25 @@ apt update -y && apt upgrade -y
 setup_dns() {
   echo "[DNS] Configuring dnsmasq"
 
-  # Disable systemd-resolved (avoids conflicts)
   systemctl disable --now systemd-resolved
 
-  # Clean resolv.conf
   rm -f /etc/resolv.conf
   echo "nameserver 8.8.8.8" > /etc/resolv.conf
 
-  # Install dnsmasq
   apt update -y
   apt install -y dnsmasq
 
-  # Create dedicated dnsmasq config
   cat <<EOF > /etc/dnsmasq.d/k8s.conf
-# Kubernetes lab DNS records
 address=/k8smaster/192.168.56.11
 address=/k8sworker1/192.168.56.12
 address=/k8sworker2/192.168.56.13
 
-# Forward external queries
 server=8.8.8.8
 
-# Listen on all interfaces
 listen-address=0.0.0.0
 bind-interfaces
 EOF
 
-  # Restart and enable dnsmasq
   systemctl restart dnsmasq
   systemctl enable dnsmasq
 
@@ -116,8 +108,14 @@ EOF
   echo "[K8S] Install containerd"
   apt install -y containerd
   mkdir -p /etc/containerd
-  containerd config default > /etc/containerd/config.toml
-  systemctl enable --now containerd
+  mkdir -p /etc/containerd
+containerd config default > /etc/containerd/config.toml
+
+# 🔥 FIX: enable systemd cgroup driver
+sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+
+systemctl restart containerd
+systemctl enable containerd
 
   echo "[K8S] Install Kubernetes"
   mkdir -p /etc/apt/keyrings
@@ -160,8 +158,12 @@ setup_master() {
 
   kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f https://docs.projectcalico.org/manifests/calico.yaml
 
+  echo "[MASTER] Waiting before generating join command..."
+  sleep 10
+
   echo "[MASTER] Generate join command"
-  kubeadm token create --print-join-command > /joincluster.sh
+  kubeadm token create --print-join-command > /vagrant/joincluster.sh
+  chmod +x /vagrant/joincluster.sh
 }
 
 ############################
@@ -169,15 +171,35 @@ setup_master() {
 ############################
 setup_worker() {
 
-  echo "[WORKER] Preparing join script"
+  MASTER_IP="192.168.56.11"
 
-  cat > /usr/local/bin/joincluster.sh <<EOF
-#!/bin/bash
-sshpass -p "kubeadmin" scp -o StrictHostKeyChecking=no k8smaster:/joincluster.sh /joincluster.sh
-bash /joincluster.sh
-EOF
+  echo "[WORKER] Waiting for join command..."
+  while [ ! -f /vagrant/joincluster.sh ]; do
+    sleep 5
+  done
 
-  chmod +x /usr/local/bin/joincluster.sh
+  echo "[WORKER] Waiting for API server..."
+  until nc -z $MASTER_IP 6443; do
+    sleep 5
+  done
+
+  echo "[WORKER] Joining cluster..."
+
+  until bash /vagrant/joincluster.sh; do
+    echo "[WORKER] Join failed, resetting and retrying..."
+
+    kubeadm reset -f >/dev/null 2>&1 || true
+    rm -rf /etc/kubernetes/*
+    rm -rf /var/lib/kubelet/*
+    rm -rf /var/lib/etcd
+
+    systemctl restart containerd
+    systemctl restart kubelet
+
+    sleep 10
+  done
+
+  echo "[WORKER] Successfully joined cluster"
 }
 
 ############################

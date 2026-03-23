@@ -18,8 +18,8 @@ Vagrant.configure("2") do |config|
   config.vm.box = "ubuntu/jammy64"
   config.vm.box_check_update = false
 
-  # Disable default shared folder (better performance & fewer issues)
-  config.vm.synced_folder ".", "/vagrant", disabled: true
+  # ✅ KEEP synced folder (required for join script sharing)
+  config.vm.synced_folder ".", "/vagrant"
 
   # -----------------------------
   # VM Definitions
