@@ -72,6 +72,34 @@ EOF
 
   echo "[DNS] Configuration complete"
 }
+############################
+# NFS SETUP
+############################
+setup_nfs_server() {
+
+  echo "[NFS] Installing NFS server"
+
+  apt update -y
+  apt install -y nfs-kernel-server
+
+  echo "[NFS] Creating shared directory"
+  mkdir -p /srv/nfs/k8s
+  chown nobody:nogroup /srv/nfs/k8s
+  chmod 777 /srv/nfs/k8s
+
+  echo "[NFS] Configuring exports"
+
+  cat <<EOF > /etc/exports
+/srv/nfs/k8s 192.168.56.0/24(rw,sync,no_subtree_check,no_root_squash)
+EOF
+
+  exportfs -rav
+
+  systemctl restart nfs-kernel-server
+  systemctl enable nfs-kernel-server
+
+  echo "[NFS] Server ready"
+}
 
 ############################
 # COMMON K8S SETUP
@@ -80,6 +108,8 @@ setup_k8s_common() {
 
   echo "[K8S] Installing dependencies"
   apt-get install -y apt-transport-https ca-certificates curl gpg
+  echo "[K8S] Installing NFS client"
+  apt install -y nfs-common
 
   echo "[K8S] Disable swap"
   swapoff -a
@@ -130,6 +160,7 @@ systemctl enable containerd
   apt install -y kubelet kubeadm kubectl
   apt-mark hold kubelet kubeadm kubectl
   systemctl enable kubelet
+  
 }
 
 ############################
@@ -216,6 +247,7 @@ fi
 
 case $ROLE in
   master)
+    setup_nfs_server
     setup_master
     ;;
   worker)
