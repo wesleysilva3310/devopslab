@@ -105,6 +105,13 @@ EOF
 # COMMON K8S SETUP
 ############################
 setup_k8s_common() {
+  echo "[K8S] Configuring /etc/hosts for cluster communication"
+
+  cat <<EOF >> /etc/hosts
+  192.168.56.11 k8smaster
+  192.168.56.12 k8sworker1
+  192.168.56.13 k8sworker2
+EOF
 
   echo "[K8S] Installing dependencies"
   apt-get install -y apt-transport-https ca-certificates curl gpg
