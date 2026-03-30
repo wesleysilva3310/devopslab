@@ -5,9 +5,9 @@ ENV['VAGRANT_NO_PARALLEL'] = 'yes'
 # -----------------------------
 NODES = [
   { name: "dnsserver",  ip: "192.168.56.10", cpu: 1, ram: 1024, role: "dns" },
-  { name: "k8smaster", ip: "192.168.56.11", cpu: 2, ram: 4096, role: "master", disk: "80GB" },
-  { name: "k8sworker1", ip: "192.168.56.12", cpu: 2, ram: 2048, role: "worker" },
-  { name: "k8sworker2", ip: "192.168.56.13", cpu: 2, ram: 2048, role: "worker" }
+  { name: "k8smaster", ip: "192.168.56.11", cpu: 4, ram: 8192, role: "master", disk: "80GB" },
+  { name: "k8sworker1", ip: "192.168.56.12", cpu: 4, ram: 8192, role: "worker" },
+  { name: "k8sworker2", ip: "192.168.56.13", cpu: 4, ram: 8192, role: "worker" }
 ]
 
 Vagrant.configure("2") do |config|
