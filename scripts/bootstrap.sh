@@ -62,6 +62,7 @@ address=/k8sworker1/192.168.56.12
 address=/k8sworker2/192.168.56.13
 #ingress domains
 address=/.lab/192.168.56.12
+address=/.lab/192.168.56.13
 
 server=8.8.8.8
 
