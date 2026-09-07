@@ -49,10 +49,14 @@ helm repo update
 echo "🧹 Cleaning previous GitLab install..."
 
 helm uninstall gitlab -n gitlab >/dev/null 2>&1 || true
+
 kubectl delete namespace gitlab --ignore-not-found
 
 echo "⏳ Waiting namespace deletion..."
-sleep 10
+
+while kubectl get namespace gitlab >/dev/null 2>&1; do
+  sleep 3
+done
 
 ############################
 # CREATE NAMESPACE
@@ -60,18 +64,18 @@ sleep 10
 kubectl create namespace gitlab
 
 ############################
-# INSTALL GITLAB (FIXED)
+# INSTALL GITLAB
 ############################
-echo "📦 Installing GitLab..."
+echo "📦 Installing GitLab Chart 9.3.6..."
 
 helm install gitlab gitlab/gitlab \
+  --version 9.3.6 \
   -n gitlab \
   \
   --set global.hosts.domain=lab \
   --set global.hosts.externalIP=192.168.56.12 \
   \
   --set global.ingress.class=nginx \
-  \
   --set global.ingress.configureCertmanager=false \
   \
   --set nginx-ingress.enabled=false \
@@ -86,11 +90,45 @@ helm install gitlab gitlab/gitlab \
   --set gitlab-runner.install=false
 
 ############################
-# WAIT
+# WAIT FOR GITLAB
 ############################
-echo "⏳ Waiting for GitLab pods..."
+echo "⏳ Waiting for GitLab workloads..."
 
-kubectl wait --for=condition=Ready pods --all -n gitlab --timeout=900s || true
+echo "⏳ Waiting for GitLab webservice..."
+
+kubectl wait \
+  --for=condition=Ready \
+  pod \
+  -l app=webservice \
+  -n gitlab \
+  --timeout=900s || true
+
+echo "⏳ Waiting for GitLab pods to become Running..."
+
+TIMEOUT=900
+ELAPSED=0
+
+while true; do
+
+  NOT_READY=$(kubectl get pods -n gitlab --no-headers 2>/dev/null | \
+    awk '$3 != "Running" && $3 != "Completed" {count++} END {print count+0}')
+
+  if [ "$NOT_READY" -eq 0 ]; then
+    echo "✅ All GitLab workloads are Running or Completed."
+    break
+  fi
+
+  if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
+    echo "⚠️ Timeout waiting for GitLab workloads."
+    break
+  fi
+
+  echo "⏳ Still waiting... ($ELAPSED/$TIMEOUT seconds)"
+  kubectl get pods -n gitlab
+  sleep 10
+  ELAPSED=$((ELAPSED + 10))
+
+done
 
 ############################
 # INFO
@@ -105,10 +143,18 @@ kubectl get ingress -n gitlab
 
 echo ""
 echo "🔑 Root password:"
-kubectl get secret gitlab-gitlab-initial-root-password -n gitlab -o jsonpath="{.data.password}" | base64 -d
+
+kubectl get secret \
+  gitlab-gitlab-initial-root-password \
+  -n gitlab \
+  -o jsonpath="{.data.password}" \
+  | base64 -d
+
 echo ""
 
 echo ""
 echo "🌐 Access GitLab:"
 echo "https://gitlab.lab"
 echo ""
+
+echo "✅ GitLab installation finished."
