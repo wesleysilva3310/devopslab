@@ -11,7 +11,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 sudo chmod 644 /etc/kubernetes/admin.conf || true
 
 ############################
-# WAIT FOR CLUSTER
+# WAIT FOR KUBERNETES API
 ############################
 echo "⏳ Waiting for Kubernetes API..."
 
@@ -20,12 +20,17 @@ until kubectl get nodes >/dev/null 2>&1; do
   sleep 5
 done
 
+############################
+# WAIT FOR ALL NODES
+############################
 echo "⏳ Waiting for all nodes Ready..."
 
 until [ "$(kubectl get nodes --no-headers | grep -c ' Ready')" -ge 3 ]; do
   kubectl get nodes
   sleep 5
 done
+
+echo "✅ All nodes are Ready."
 
 ############################
 # HELM
@@ -36,7 +41,7 @@ if ! command -v helm >/dev/null 2>&1; then
 fi
 
 ############################
-# REPOS
+# HELM REPOSITORY
 ############################
 echo "📦 Adding Helm repos..."
 
@@ -44,23 +49,25 @@ helm repo add gitlab https://charts.gitlab.io 2>/dev/null || true
 helm repo update
 
 ############################
-# CLEAN OLD INSTALL
+# CLEAN PREVIOUS GITLAB
 ############################
-echo "🧹 Cleaning previous GitLab install..."
+echo "🧹 Cleaning previous GitLab installation..."
 
 helm uninstall gitlab -n gitlab >/dev/null 2>&1 || true
 
 kubectl delete namespace gitlab --ignore-not-found
 
-echo "⏳ Waiting namespace deletion..."
+echo "⏳ Waiting for namespace deletion..."
 
 while kubectl get namespace gitlab >/dev/null 2>&1; do
   sleep 3
 done
 
 ############################
-# CREATE NAMESPACE
+# CREATE GITLAB NAMESPACE
 ############################
+echo "📁 Creating GitLab namespace..."
+
 kubectl create namespace gitlab
 
 ############################
@@ -87,31 +94,25 @@ helm install gitlab gitlab/gitlab \
   --set prometheus.install=false \
   --set grafana.enabled=false \
   \
-  --set gitlab-runner.install=false
+  --set gitlab-runner.install=false \
+  \
+  --set installCertmanager=false
 
 ############################
-# WAIT FOR GITLAB
+# WAIT FOR GITLAB WORKLOADS
 ############################
+echo ""
 echo "⏳ Waiting for GitLab workloads..."
-
-echo "⏳ Waiting for GitLab webservice..."
-
-kubectl wait \
-  --for=condition=Ready \
-  pod \
-  -l app=webservice \
-  -n gitlab \
-  --timeout=900s || true
-
-echo "⏳ Waiting for GitLab pods to become Running..."
 
 TIMEOUT=900
 ELAPSED=0
 
 while true; do
 
-  NOT_READY=$(kubectl get pods -n gitlab --no-headers 2>/dev/null | \
-    awk '$3 != "Running" && $3 != "Completed" {count++} END {print count+0}')
+  NOT_READY=$(
+    kubectl get pods -n gitlab --no-headers 2>/dev/null |
+    awk '$3 != "Running" && $3 != "Completed" {count++} END {print count+0}'
+  )
 
   if [ "$NOT_READY" -eq 0 ]; then
     echo "✅ All GitLab workloads are Running or Completed."
@@ -120,27 +121,38 @@ while true; do
 
   if [ "$ELAPSED" -ge "$TIMEOUT" ]; then
     echo "⚠️ Timeout waiting for GitLab workloads."
+    echo ""
+    kubectl get pods -n gitlab
     break
   fi
 
   echo "⏳ Still waiting... ($ELAPSED/$TIMEOUT seconds)"
+
   kubectl get pods -n gitlab
+
   sleep 10
+
   ELAPSED=$((ELAPSED + 10))
 
 done
 
 ############################
-# INFO
+# SHOW PODS
 ############################
 echo ""
-echo "📊 Pods:"
+echo "📊 GitLab Pods:"
 kubectl get pods -n gitlab
 
+############################
+# SHOW INGRESS
+############################
 echo ""
-echo "🌐 Ingress:"
+echo "🌐 GitLab Ingress:"
 kubectl get ingress -n gitlab
 
+############################
+# ROOT PASSWORD
+############################
 echo ""
 echo "🔑 Root password:"
 
@@ -152,9 +164,33 @@ kubectl get secret \
 
 echo ""
 
+############################
+# VERIFY CERT-MANAGER IS NOT
+# INSTALLED BY GITLAB
+############################
 echo ""
-echo "🌐 Access GitLab:"
+echo "🔎 Checking GitLab cert-manager..."
+
+if kubectl get deployment gitlab-certmanager -n gitlab >/dev/null 2>&1; then
+  echo "⚠️ WARNING: GitLab cert-manager is still present."
+else
+  echo "✅ GitLab is NOT installing its own cert-manager."
+fi
+
+############################
+# DONE
+############################
+echo ""
+echo "========================================"
+echo "✅ GITLAB INSTALLATION FINISHED"
+echo "========================================"
+echo ""
+echo "📦 GitLab Chart: 9.3.6"
+echo "📦 GitLab version: 18.3.6"
+echo ""
+echo "🌐 Access:"
 echo "https://gitlab.lab"
 echo ""
-
-echo "✅ GitLab installation finished."
+echo "🔐 cert-manager:"
+echo "External / centralized installation"
+echo ""
